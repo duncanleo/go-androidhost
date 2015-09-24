@@ -18,7 +18,7 @@ import (
 
 var router = mux.NewRouter()
 
-func handler(w http.ResponseWriter, r *http.Request) {
+func listAVDHandler(w http.ResponseWriter, r *http.Request) {
 	config, err := config.GetConfig()
 	if err != nil {
 		log.Panic(err)
@@ -41,11 +41,27 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, string(json))
 }
 
+func startHandler(w http.ResponseWriter, r *http.Request) {
+	config, err := config.GetConfig()
+	if err != nil {
+		log.Panic(err)
+	}
+	emu_name := r.URL.Query().Get("name")
+	if len(emu_name) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	emulator_binary := filepath.Join(config.SDKLocation, "tools", "emulator")
+	go command.RunCommand(emulator_binary, "-avd", emu_name)
+
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	router.StrictSlash(true)
 
-	router.HandleFunc("/", handler)
+	router.HandleFunc("/listavd", listAVDHandler)
+	router.HandleFunc("/start", startHandler)
 
 	http.Handle("/", router)
 	http.ListenAndServe(":8000", handlers.LoggingHandler(os.Stdout, http.DefaultServeMux))

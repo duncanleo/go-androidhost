@@ -12,3 +12,8 @@ func GetCommandResponse(binary string, cmd ...string) (string, error) {
 	err := command.Run()
 	return stdout.String(), err
 }
+
+func RunCommand(binary string, cmd ...string) {
+	command := exec.Command(binary, cmd...)
+	command.Run()
+}
