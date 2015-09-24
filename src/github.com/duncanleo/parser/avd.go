@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func Unmarshal(avd *model.AVD, toparse string) {
+func UnmarshalAVD(avd *model.AVD, toparse string) {
 	toparse = strings.Replace(toparse, "Available Android Virtual Devices:", "", -1)
 	re := regexp.MustCompile("\\s+(.*): (.*)")
 	matches := re.FindAllStringSubmatch(toparse, -1)
