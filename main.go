@@ -16,6 +16,8 @@ import (
 	"encoding/json"
 	"time"
 	"io"
+	"io/ioutil"
+	"regexp"
 )
 
 var router = mux.NewRouter()
@@ -26,9 +28,9 @@ func listAVDHandler(w http.ResponseWriter, r *http.Request) {
 		log.Panic(err)
 	}
 	android_binary := filepath.Join(config.SDKLocation, "tools", "android")
-	s, _ := command.GetCommandResponse(android_binary, "list", "avd")
+	stdout, _, _ := command.GetCommandResponse(android_binary, "list", "avd")
 
-	ms := strings.Split(s, "---------")
+	ms := strings.Split(stdout.String(), "---------")
 
 	avd_list := make([]model.AVD, 0)
 
@@ -49,11 +51,11 @@ func listADBHandler(w http.ResponseWriter, r *http.Request) {
 		log.Panic(err)
 	}
 	adb_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
-	s, _ := command.GetCommandResponse(adb_binary, "devices", "-l")
+	stdout, _, _ := command.GetCommandResponse(adb_binary, "devices", "-l")
 
 	var adbList []model.ADBDevice = make([]model.ADBDevice, 0)
 
-	parser.UnmarshalADB(&adbList, s)
+	parser.UnmarshalADB(&adbList, stdout.String())
 
 	json, _ := json.MarshalIndent(adbList, "", "\t")
 	w.Header().Set("Content-Type", "application/json")
@@ -92,20 +94,19 @@ func installHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//Current dir
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	wd, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		log.Panic(err)
 	}
 
-	fmt.Println(dir)
-
-	temp_file_path := filepath.Join(dir, fmt.Sprintf("%d.apk", time.Now().UnixNano()))
+	temp_file_path := filepath.Join(wd, fmt.Sprintf("%d.apk", time.Now().UnixNano()))
 	temp_file, err := os.Create(temp_file_path)
 	if err != nil {
 		log.Panic(err)
 	}
+	
 	defer temp_file.Close()
+	defer os.Remove(temp_file_path)
 
 	//Write POST content to file
 	_, err = io.Copy(temp_file, file)
@@ -116,8 +117,41 @@ func installHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	emulator_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
-	s, _ := command.GetCommandResponse(emulator_binary, "-s", emu_name, "install", temp_file_path)
-	fmt.Println(s)
+	command.RunCommand(emulator_binary, "-s", emu_name, "install", temp_file_path)
+
+	//Run the apk
+	//Get the package name using latest build tools' aapt
+	build_tools_dir_path := filepath.Join(config.SDKLocation, "build-tools")
+	build_tools_dir, err := ioutil.ReadDir(build_tools_dir_path)
+	latest_build_tools := build_tools_dir[len(build_tools_dir) - 1]
+	aapt_binary := filepath.Join(build_tools_dir_path, latest_build_tools.Name(), "aapt")
+	fmt.Println("Running", aapt_binary, "on", temp_file_path)
+	stdout, _, err := command.GetCommandResponse(aapt_binary, "dump", "badging", temp_file_path)
+	
+	if err != nil {
+		log.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	re := regexp.MustCompile("package: name='(.+?)'")
+	package_string_matches := re.FindStringSubmatch(stdout.String())
+	if len(package_string_matches) < 2 {
+		log.Println("Could not match package name")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	package_string := package_string_matches[1]
+	fmt.Println("Found package string", package_string)
+
+	//Run the actual app
+	adb_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
+	stdout, stderr, err := command.GetCommandResponse(adb_binary, "-s", emu_name, "shell", "monkey", "-p", package_string, "-c", "android.intent.category.LAUNCHER", "1")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(stdout.String())
+	fmt.Println(stderr.String())
 }
 
 func main() {
