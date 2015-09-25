@@ -8,6 +8,8 @@ import (
 
 func UnmarshalADB(adb *[]model.ADBDevice, toparse string) {
 	toparse = strings.Replace(toparse, "List of devices attached", "", -1)
+	toparse = strings.Replace(toparse, "* daemon not running. starting it now on port 5037 *", "", -1)
+	toparse = strings.Replace(toparse, "* daemon started successfully *", "", -1)
 	first := regexp.MustCompile("(.+?)\\s+(.+?) (.+)")
 	first_matches := first.FindAllStringSubmatch(toparse, -1)
 	for _, m := range first_matches {

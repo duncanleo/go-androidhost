@@ -7,6 +7,7 @@ import (
 	"github.com/duncanleo/command"
 	"github.com/duncanleo/model"
 	"github.com/duncanleo/parser"
+	"github.com/duncanleo/randomstring"
 	"fmt"
 	"log"
 	"net/http"
@@ -21,6 +22,13 @@ import (
 )
 
 var router = mux.NewRouter()
+
+var installJobChannel chan InstallJob = make(chan InstallJob)
+
+type InstallJob struct {
+	TempFilePath string
+	EmuName string
+}
 
 func listAVDHandler(w http.ResponseWriter, r *http.Request) {
 	config, err := config.GetConfig()
@@ -77,10 +85,6 @@ func startHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func installHandler(w http.ResponseWriter, r *http.Request) {
-	config, err := config.GetConfig()
-	if err != nil {
-		log.Panic(err)
-	}
 	emu_name := r.URL.Query().Get("name")
 	if len(emu_name) == 0 {
 		w.WriteHeader(http.StatusNotFound)
@@ -99,14 +103,13 @@ func installHandler(w http.ResponseWriter, r *http.Request) {
 		log.Panic(err)
 	}
 
-	temp_file_path := filepath.Join(wd, fmt.Sprintf("%d.apk", time.Now().UnixNano()))
+	temp_file_path := filepath.Join(wd, fmt.Sprintf("%d-%s.apk", time.Now().UnixNano(), randomstring.RandSeq(10)))
 	temp_file, err := os.Create(temp_file_path)
 	if err != nil {
 		log.Panic(err)
 	}
 	
 	defer temp_file.Close()
-	defer os.Remove(temp_file_path)
 
 	//Write POST content to file
 	_, err = io.Copy(temp_file, file)
@@ -116,47 +119,71 @@ func installHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	emulator_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
-	command.RunCommand(emulator_binary, "-s", emu_name, "install", temp_file_path)
+	installJobChannel <- InstallJob{TempFilePath: temp_file_path, EmuName: emu_name}
+}
 
-	//Run the apk
-	//Get the package name using latest build tools' aapt
-	build_tools_dir_path := filepath.Join(config.SDKLocation, "build-tools")
-	build_tools_dir, err := ioutil.ReadDir(build_tools_dir_path)
-	latest_build_tools := build_tools_dir[len(build_tools_dir) - 1]
-	aapt_binary := filepath.Join(build_tools_dir_path, latest_build_tools.Name(), "aapt")
-	fmt.Println("Running", aapt_binary, "on", temp_file_path)
-	stdout, _, err := command.GetCommandResponse(aapt_binary, "dump", "badging", temp_file_path)
-	
+func installJobWorker() {
+	config, err := config.GetConfig()
 	if err != nil {
-		log.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		log.Panic(err)
 	}
 
-	re := regexp.MustCompile("package: name='(.+?)'")
-	package_string_matches := re.FindStringSubmatch(stdout.String())
-	if len(package_string_matches) < 2 {
-		log.Println("Could not match package name")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	package_string := package_string_matches[1]
-	fmt.Println("Found package string", package_string)
+	for job := range installJobChannel {
+		emulator_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
+		command.RunCommand(emulator_binary, "-s", job.EmuName, "install", "-r", job.TempFilePath)
+		// fmt.Println(stdout.String())
 
-	//Run the actual app
-	adb_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
-	stdout, stderr, err := command.GetCommandResponse(adb_binary, "-s", emu_name, "shell", "monkey", "-p", package_string, "-c", "android.intent.category.LAUNCHER", "1")
-	if err != nil {
-		fmt.Println(err)
+		//Run the apk
+		//Get the package name using latest build tools' aapt
+		build_tools_dir_path := filepath.Join(config.SDKLocation, "build-tools")
+		build_tools_dir, err := ioutil.ReadDir(build_tools_dir_path)
+		latest_build_tools := build_tools_dir[len(build_tools_dir) - 1]
+		aapt_binary := filepath.Join(build_tools_dir_path, latest_build_tools.Name(), "aapt")
+		// fmt.Println("Running", aapt_binary, "on", temp_file_path)
+		stdout, _, err := command.GetCommandResponse(aapt_binary, "dump", "badging", job.TempFilePath)
+		
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		package_string_regex := regexp.MustCompile("package: name='(.+?)'")
+		package_string_matches := package_string_regex.FindStringSubmatch(stdout.String())
+		if len(package_string_matches) < 2 {
+			log.Println("Could not match package name")
+			return
+		}
+		package_string := package_string_matches[1]
+
+		activity_string_regex := regexp.MustCompile("launchable-activity: name='(.+?)'")
+		activity_string_matches := activity_string_regex.FindStringSubmatch(stdout.String())
+		if len(package_string_matches) < 2 {
+			log.Println("Could not match activity name")
+			return
+		}
+		activity_string := activity_string_matches[1]
+
+		// fmt.Println("Found package string", package_string, "-", activity_string)
+
+		//Run the actual app
+		adb_binary := filepath.Join(config.SDKLocation, "platform-tools", "adb")
+		stdout, stderr, err := command.GetCommandResponse(adb_binary, "-s", job.EmuName, "shell", "am", "start", fmt.Sprintf("%s/%s", package_string, activity_string))
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(stdout.String())
+		fmt.Println(stderr.String())
+
+		os.Remove(job.TempFilePath)
 	}
-	fmt.Println(stdout.String())
-	fmt.Println(stderr.String())
 }
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	router.StrictSlash(true)
+
+	//Start one install job worker
+	go installJobWorker()
 
 	router.HandleFunc("/listavd", listAVDHandler)
 	router.HandleFunc("/listadb", listADBHandler)
