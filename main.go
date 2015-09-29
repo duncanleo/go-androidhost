@@ -19,6 +19,7 @@ import (
 	"io"
 	"io/ioutil"
 	"regexp"
+	"net"
 )
 
 var router = mux.NewRouter()
@@ -178,12 +179,39 @@ func installJobWorker() {
 	}
 }
 
+//Start discovery service for clients
+func startDiscoveryService() {
+	socket, err := net.ListenUDP("udp4", &net.UDPAddr{
+		IP:   net.IPv4(0, 0, 0, 0),
+		Port: 8001,
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+	for {
+		data := make([]byte, 4096)
+		readCount, remoteAddr, err := socket.ReadFromUDP(data)
+		if err == nil {
+			fmt.Println("Read", string(data), "length", readCount, "from ip", remoteAddr)
+		}
+		client_socket, err := net.DialUDP("udp4", nil, remoteAddr)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		client_socket.Write([]byte("ANDROID_HOST_SERVER_RECOGNISED"))
+	}
+}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	router.StrictSlash(true)
 
 	//Start one install job worker
 	go installJobWorker()
+
+	//Start discovery service
+	go startDiscoveryService()
 
 	router.HandleFunc("/listavd", listAVDHandler)
 	router.HandleFunc("/listadb", listADBHandler)
