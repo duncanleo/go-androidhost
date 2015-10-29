@@ -6,6 +6,8 @@ The Android Emulator is the most versatile emulator available - you can set any 
 
 Android Host allows you to run the Android Emulator on a separate machine. The server runs on that separate machine and provides remote deployment and control.
 
+I built this during my time as an intern at [buUuk](http://www.buuuk.com), where the Android developers had to test their apps on the few devices in the office. Sometimes, bugs occurred on older versions of Android of which none of the devices ran.
+
 ### Features
 - Remote starting of AVDs
 - Deploy to any ADB device connected to the server machine, including USB devices
