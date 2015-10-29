@@ -15,14 +15,17 @@ Android Host allows you to run the Android Emulator on a separate machine. The s
 1. Clone this repo
 2. `cd` to the cloned directory
 3. Fetch Go dependencies
+
     ```shell
     go get ./...
     ```
 4. Build a binary
+
     ```shell
     go build
     ```
 5. Run the binary
+
     ```shell
     ./go-androidhost
     ```
