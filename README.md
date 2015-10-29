@@ -11,19 +11,19 @@ Android Host allows you to run the Android Emulator on a separate machine. The s
 - Deploy to any ADB device connected to the server machine, including USB devices
 - Discovery through UDP - you can deploy to multiple servers in the same LAN
 
-### Installation
+## Installation
 1. Clone this repo
 2. `cd` to the cloned directory
 3. Fetch Go dependencies
-```shell
-go get ./...
-```
+    ```shell
+    go get ./...
+    ```
 4. Build a binary
-```shell
-go build
-```
+    ```shell
+    go build
+    ```
 5. Run the binary
-```shell
-./go-androidhost
-```
+    ```shell
+    ./go-androidhost
+    ```
 6. Install the IntelliJ plugin in Android Studio. Instructions are available in the other repo.
